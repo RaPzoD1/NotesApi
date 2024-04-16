@@ -1,27 +1,27 @@
+require('dotenv').config()
 const express = require('express')
 const app = express()
 const cors = require('cors')
+const Note = require('./models/note')
 
 
-
-
-let notes = [
-  {
-    id: 1,
-    content: "HTML is easy",
-    important: true
-  },
-  {
-    id: 2,
-    content: "Browser can execute only JavaScript",
-    important: false
-  },
-  {
-    id: 3,
-    content: "GET and POST are the most important methods of HTTP protocol",
-    important: true
-  }
-]
+// let notes = [
+//   {
+//     id: 1,
+//     content: "HTML is easy",
+//     important: true
+//   },
+//   {
+//     id: 2,
+//     content: "Browser can execute only JavaScript",
+//     important: false
+//   },
+//   {
+//     id: 3,
+//     content: "GET and POST are the most important methods of HTTP protocol",
+//     important: true
+//   }
+// ]
 
 const requestLogger = (request, response, next) => {
   console.log('Method:', request.method)
@@ -34,9 +34,7 @@ app.use(cors())
 app.use(express.json())
 app.use(requestLogger)
 app.use(express.static('dist'))
-const unknownEndpoint = (req,res) =>{
-  res.status(404).send({error: 'unknown endpoint'})
-}
+
 
 
 app.get('/', (request, response) =>{
@@ -44,32 +42,48 @@ app.get('/', (request, response) =>{
 })
 
 app.get('/api/notes',(req, res) =>{
+
+  Note.find({}).then(notes => {
     res.json(notes)
+  })   
 })
 
-app.get('/api/notes/:id', (req, res) => {
+app.get('/api/notes/:id', (req, res, next) => {
 
-  const id = Number(req.params.id)  
-  const note = notes.find(note => note.id === id)
-
-  note 
-    ? res.json(note) 
-    : res.status(404).end()
-
+  Note.findById(req.params.id)
+    .then(note =>{
+      if(note) {
+        res.json(note)
+      }else {
+        res.status(404).end()
+      }     
+    })
+    .catch(error => next(error))
 })
 
 app.put('/api/notes/:id',(req,res) =>{
-  const id = Number(req.params.id)
-  notes = notes.filter(note => note.id !== id)  
-  notes = notes.concat(req.body)
-  console.log(notes);
-  res.send(req.body).status(200)
+
+  const {content, important} = req.body
+
+  const note = {
+    content,
+    important,
+  }
+
+  Note.findByIdAndUpdate(req.params.id, note, {new: true, runValidators:true, context: 'query'})
+    .then(updatedNote => {
+      res.json(updatedNote)
+    })
+    .catch(error => next(error))
 })
 
-app.delete('/api/notes/:id',(req,res) =>{
-  const id = Number(req.params.id)
-  notes = notes.filter(note => note.id !==id)
-  res.status(204).end()
+app.delete('/api/notes/:id',(req,res,next) =>{
+
+  Note.findByIdAndDelete(req.params.id)
+    .then(result =>{
+      res.status(204).end()
+    })
+    .catch(error => next(error))
 })
 
 const generateId = () =>{
@@ -80,34 +94,54 @@ const generateId = () =>{
     return maxId + 1
 }
 
-app.post('/api/notes',(req, res) => {  
+app.post('/api/notes',(req, res, next) => {
 
+  const body = req.body
     
-  if(!req.body.content) {
-    console.log(req.body.content);
+  if(body.content === undefined) {
+
     return res.status(400).json({
       error: 'content missing'
     })
   }
-const note = {
-  content: req.body.content,
-  important: Boolean(req.body.important) || false,
-  id: generateId()
-}
-  notes = notes.concat(note)
-  console.log(note)
-  res.json(note)
+
+  const note = new Note ({
+    content: body.content,
+    important: Boolean(body.important) || false,
+  })
+
+  note.save()
+    .then(savedNote => {
+      res.json(savedNote)
+    })
+    .catch(error => next(error))  
 })
 
+const unknownEndpoint = (req,res) =>{
+  res.status(404).send({error: 'unknown endpoint'})
+}
 
 app.use(unknownEndpoint)
 
+const errorHandler = (error, req, res, next) =>{
+  console.log(error.message);
+
+  if(error.name === 'CastError'){
+    return res.status(400).send({error: 'malformatted id'})
+  } else if(error.name === 'ValidationError'){
+    return res.status(400).json({error: error.message})
+  }
+  next(error)
+}
+
+//errorhandler debe ser el ultimo middleware cargado, !tambien todas las 
+//rutas deben ser registradas antes que esto!
+app.use(errorHandler)
 
 
 
 
-
-const PORT = process.env.PORT || 3001
+const PORT = process.env.PORT
 app.listen(PORT, ()=>{
     console.log(`server running on port ${PORT}`);
 })
